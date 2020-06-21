@@ -90,5 +90,9 @@ typedef void *__builtin_va_list;
 #define pgm_read_ptr(address_short)   short()
 
 #include "dc_el_relay_v0.ino"
+#include "display_funcs.ino"
+#include "eeprom_funcs.ino"
+#include "navigation_funcs.ino"
+#include "relay_funcs.ino"
 #endif
 #endif

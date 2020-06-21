@@ -6,6 +6,15 @@
 
 // the setup function runs once when you press reset or power the board
 
+//meguno link
+#include <TCPCommandHandler.h>
+#include <MegunoLink.h>
+#include <Filter.h>
+#include <EEPROMStore.h>
+#include <CommandHandler.h>
+#include <CircularBuffer.h>
+#include <ArduinoTimer.h>
+
 //eeprom library
 #include <EEPROMVar.h>
 #include <EEPROMex.h>
@@ -59,6 +68,9 @@ char storedate[20];
 //liquid menu stuff
 unsigned long updatePeriod = 500;
 unsigned long updateLastMs = 0;
+
+//adc filter
+ExponentialFilter<int> ADCFilter(90, 0);
 
 // There are two types of functions for this example, one that increases some
 // value and one that decreases it.
@@ -140,164 +152,16 @@ int numberOfZonesPosition = 0x60;
 int checkIfReady = 0x80;
 long zoneEepromPosition = 0;
 
-int sampleZoneCurrents()
-{
-	int i;
+//prototypes - because it wont let me compile :(
+char* getDate();
+int getPosCurrent();
+int getNegCurrent();
+char* getSaveState();
+int getMeasuredCurrent();
+char* getTransducerName();
+char* getStatus();
+int getMaxZones();
 
-	for (i = 1; i <= *(numberOfZones); i++)
-	{
-		zoneCurrent[i] = analogRead(zoneInputs[i]);
-	}
-}
-
-void copyArray(const char* src, char* dst, int len)
-{
-	while (len--)
-	{
-		*(dst + len) = *(src + len);
-	}
-}
-
-void forwardZone(void)
-{
-	int* x = &initialZone;
-	if (*x < *numberOfZones)
-	{
-		++(*x);
-	}
-}
-
-void backwardZone(void)
-{
-	int* x = &initialZone;
-	if (*x > 1)
-	{
-		--(*x);
-	}
-}
-
-int getPosCurrent(void)
-{
-	return zoneThresholdP[initialZone];
-}
-
-int getNegCurrent(void)
-{
-	return zoneThresholdN[initialZone];
-}
-
-void writeDataEeprom(int deviceAddress, long eepromAddress, char* data, int dataSize)
-{
-	//64Kbit = 8 Kbyte which equals to 250 entries @ 32 bytes per entry
-
-	Wire.beginTransmission(deviceAddress);
-
-	Wire.write((int)(eepromAddress >> 8)); //MSB of address
-	Wire.write((int)(eepromAddress & 0xFF)); //LSB of address
-
-	for (int i = 0; i < dataSize; i++)
-	{
-		Wire.write(data[i]);
-	}
-	Wire.endTransmission(); //end transmission
-
-	long* x = &zoneEepromPosition;
-	*x += dataSize;
-}
-
-void writeDataEepromInternal(int eepromAddress, int* arr, int length)
-{
-	while (!EEPROM.isReady()) //is eeprom ready for write
-	{
-		;
-	}
-	EEPROM.writeBlock(eepromAddress, arr, length); //forgot that when you pass an array, only its ptr is passed
-	//length is not passed
-
-}
-
-void readDataEepromInternal(int eepromAddress, int* arr, int length)
-{
-	while (!EEPROM.isReady()) //is eeprom ready for write
-	{
-		;
-	}
-	EEPROM.readBlock(eepromAddress, arr, length);//forgot that when you pass an array, only its ptr is passed
-	//length is not passed
-}
-
-int getMeasuredCurrent(void)
-{
-	return zoneCurrent[initialZone];
-}
-
-char* getStatus(void)
-{
-	return "OK";
-}
-
-void getZoneCurrents()
-{
-	int i = 1;
-
-	for (i; i <= *numberOfZones; i++)
-	{
-		zoneCurrent[i] = analogRead(zoneInputs[i]);
-	}
-}
-char* getSaveState(void)
-{
-	if (isSaved == false) //isSaved = 0
-	{
-		return "Save?";
-	}
-	else //isSaved = 1
-	{
-		return "Saved!";
-	}
-}
-
-void toggleSaveThr(void)
-{
-	if (isSaved == false)
-	{
-		writeEepromInt();
-		isSaved = true;
-	}
-}
-
-
-void toggleSaveTrans(void)
-{
-	if (isSaved == false)
-	{
-		writeEepromTrans();
-		isSaved = true;
-	}
-}
-
-void toggleSaveZoneTrans(void)
-{
-	if (isSaved == false)
-	{
-		writeEepromZoneTot();
-		writeEepromTrans();
-		isSaved = true;
-	}
-}
-
-//get transducer name
-char* getTransducerName()
-{
-	int x = zoneTransducer[initialZone];
-
-	return transducerNames[x];
-}
-
-int getMaxZones(void)
-{
-	return *(numberOfZones);
-}
 
 //liquid menu defines
 
@@ -333,156 +197,6 @@ LiquidLine settingsE(0, 4, getSaveState);
 
 LiquidMenu menu(lcd);
 
-//single click of rotary encoder
-void doubleClick()
-{
-	menu.next_screen();
-	isSaved = false;
-}
-
-//double click of rotary encoder
-void singleClick()
-{
-	menu.switch_focus();
-}
-
-//button held down
-void longPress()
-{
-	menu.call_function(click);
-}
-
-char *getDate(void)
-{
-	//get current date and time
-	DateTime now = rtc.now();
-
-	//fix date, src to dst
-	copyArray(formatarray, datearray, datelength);
-
-	//convert rtc date to string
-	now.toString(datearray);
-
-	//keep a copy for later
-	copyArray(datearray, storedate, datelength);
-
-	return datearray;
-}
-
-void rotaryCheck(void)
-{
-	button.tick();
-
-	// read rotary encoder position
-	int rotEncPos = rotEnc.read();
-
-	if (rotEncPos == DIR_CW)
-	{
-		menu.call_function(increase);
-	}
-	else if (rotEncPos == DIR_CCW)
-	{
-		menu.call_function(decrease);
-	}
-}
-
-//increase and decrease zone threshold
-void increasePositiveZone(void)
-{
-	if (zoneThresholdP[initialZone] >= 0)
-	{
-		zoneThresholdP[initialZone]++;
-	}
-}
-
-void decreasePositiveZone(void)
-{
-	if (zoneThresholdP[initialZone] > 0)
-	{
-		zoneThresholdP[initialZone]--;
-	}
-}
-
-void increaseNegativeZone(void)
-{
-	if (zoneThresholdN[initialZone] <= 0)
-	{
-		zoneThresholdN[initialZone]--;
-	}
-}
-
-void decreaseNegativeZone(void)
-{
-	if (zoneThresholdN[initialZone] != 0)
-	{
-		zoneThresholdN[initialZone]++;
-	}
-}
-
-void increaseNoOfZones(void)
-{
-	if (*numberOfZones >= 0 && *numberOfZones < MAX_ZONES)
-	{
-		(*numberOfZones)++;
-	}
-}
-
-void decreaseNoOfZones(void)
-{
-	if (*numberOfZones > 0 && *numberOfZones != 1)
-	{
-		(*numberOfZones)--;
-	}
-}
-
-void nextTransducer(void)
-{
-	if (zoneTransducer[initialZone] > 0 && zoneTransducer[initialZone] < MAX_TRANS - 1)
-	{
-		zoneTransducer[initialZone]++;
-	}
-}
-
-void prevTransducer(void)
-{
-	if (zoneTransducer[initialZone] > 1 && zoneTransducer[initialZone] < MAX_TRANS)
-	{
-		zoneTransducer[initialZone]--;
-	}
-}
-
-//write data to eeprom internal
-void writeEepromInt(void)
-{
-	writeDataEepromInternal(zoneEepromPositive, zoneThresholdP, MAX_ZONES);
-	writeDataEepromInternal(zoneEepromNegative, zoneThresholdN, MAX_ZONES);
-}
-
-void readEepromInt(void)
-{
-	readDataEepromInternal(zoneEepromPositive, zoneThresholdP, MAX_ZONES);
-	readDataEepromInternal(zoneEepromNegative, zoneThresholdN, MAX_ZONES);
-}
-
-void writeEepromTrans(void)
-{
-	writeDataEepromInternal(zoneTransducerSettings, zoneTransducer, MAX_ZONES);
-}
-
-void readEepromTrans(void)
-{
-	readDataEepromInternal(zoneTransducerSettings, zoneTransducer, MAX_ZONES);
-}
-
-void writeEepromZoneTot(void)
-{
-	writeDataEepromInternal(numberOfZonesPosition, numberOfZones, 1);
-}
-
-void readEepromZoneTot(void)
-{
-	readDataEepromInternal(numberOfZonesPosition, numberOfZones, 1);
-}
 
 // Used for attaching something to the lines, to make them focusable.
 void blankFunction() 
@@ -490,75 +204,21 @@ void blankFunction()
 	return;
 }
 
-int customMapper(int value, int transducer)
-{
-	switch (transducer)
-	{
-	case 0: //hass
-		return map(value, 0, 1023, -150, 150);
-		break;
 
-	default:
-		return map(value, 0, 1023, -25, 25);
+
+void copyArray(const char* src, char* dst, int len)
+{
+	while (len--)
+	{
+		*(dst + len) = *(src + len);
 	}
 }
 
-void checkIfInitialized()
-{
-	while (!EEPROM.isReady()) //is eeprom ready for write
-	{
-		;
-	}
-	if (EEPROM.read(checkIfReady) != 'R')
-	{
-		delay(100);
-
-		//write
-		writeEepromInt();
-
-		//read transducer
-		writeEepromTrans();
-
-		//read number of zones
-		writeEepromZoneTot();
-
-		delay(100);
-
-		EEPROM.write(checkIfReady, 'R');
-	}
-}
-
-void setRelayOutputs(void)
-{
-	int i;
-
-	for (i = 1; i <= *numberOfZones; i++)
-	{
-		pinMode(relaysOutput[i], OUTPUT);
-	}
-}
-
-void compareZoneCurrents(void)
-{
-	int i;
-
-	for (i = 1; i <= *numberOfZones; i++)
-	{
-		if ( (zoneCurrent[i] > zoneThresholdP[i]) || (zoneCurrent[i]) < zoneThresholdN[i])
-		{
-			digitalWrite(relaysOutput[i], HIGH);
-		}
-		else
-		{
-			digitalWrite(relaysOutput[i], LOW);
-		}
-	}
-}
 
 void setup() 
 {
 
-		//info screen
+	//info screen
 	infomationScreen.add_line(infomationLineA);
 	infomationScreen.add_line(infomationLineB);
 	infomationScreen.add_line(infomationLineC);

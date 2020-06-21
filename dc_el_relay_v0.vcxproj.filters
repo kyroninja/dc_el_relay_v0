@@ -19,6 +19,10 @@
     <None Include="src\arduino folders read me.txt">
       <Filter>Misc Files</Filter>
     </None>
+    <None Include="relay_funcs.ino" />
+    <None Include="navigation_funcs.ino" />
+    <None Include="eeprom_funcs.ino" />
+    <None Include="display_funcs.ino" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="__vm\.dc_el_relay_v0.vsarduino.h">
