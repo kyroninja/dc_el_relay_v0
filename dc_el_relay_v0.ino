@@ -4,18 +4,27 @@
  Author:	kyron
 */
 
-
-
 // the setup function runs once when you press reset or power the board
+
+//eeprom library
 #include <EEPROMVar.h>
 #include <EEPROMex.h>
+
+//wire library
 #include <Wire.h>
+
+//one button library
 #include <OneButton.h>
+
+//liquid menu
 #include <LiquidMenu.h>
-#include <RTClib.h>
-#include <MD_REncoder.h>
 #include <LiquidCrystal.h>
 
+//rtc library
+#include <RTClib.h>
+
+//rotary encoder
+#include <MD_REncoder.h>
 
 //rotary encoder pins
 #define encoder_button_pin  10
@@ -107,6 +116,9 @@ int zoneThresholdP[MAX_ZONES] = { 0, 0, 0, 0, 0, 0, 0, 0 }; //Zone A, B and Busb
 //zone threshold negatives
 int zoneThresholdN[MAX_ZONES] = { 0, 0, 0, 0, 0, 0, 0, 0 }; //Zone A, B and Busbar
 
+//relay outputs
+int relaysOutput[MAX_ZONES] = { 0, 1, 11, 12, 13, 0, 0, 0 };
+
 //default zone
 int initialZone = 1;
 
@@ -132,7 +144,7 @@ int sampleZoneCurrents()
 {
 	int i;
 
-	for (i = 0; i < *(numberOfZones); i++)
+	for (i = 1; i <= *(numberOfZones); i++)
 	{
 		zoneCurrent[i] = analogRead(zoneInputs[i]);
 	}
@@ -228,7 +240,7 @@ void getZoneCurrents()
 {
 	int i = 1;
 
-	for (i; i < MAX_ZONES; i++)
+	for (i; i <= *numberOfZones; i++)
 	{
 		zoneCurrent[i] = analogRead(zoneInputs[i]);
 	}
@@ -516,11 +528,37 @@ void checkIfInitialized()
 	}
 }
 
+void setRelayOutputs(void)
+{
+	int i;
+
+	for (i = 1; i <= *numberOfZones; i++)
+	{
+		pinMode(relaysOutput[i], OUTPUT);
+	}
+}
+
+void compareZoneCurrents(void)
+{
+	int i;
+
+	for (i = 1; i <= *numberOfZones; i++)
+	{
+		if ( (zoneCurrent[i] > zoneThresholdP[i]) || (zoneCurrent[i]) < zoneThresholdN[i])
+		{
+			digitalWrite(relaysOutput[i], HIGH);
+		}
+		else
+		{
+			digitalWrite(relaysOutput[i], LOW);
+		}
+	}
+}
+
 void setup() 
 {
 
-
-	//info screen
+		//info screen
 	infomationScreen.add_line(infomationLineA);
 	infomationScreen.add_line(infomationLineB);
 	infomationScreen.add_line(infomationLineC);
@@ -564,6 +602,10 @@ void setup()
 	//read number of zones
 	readEepromZoneTot();
 
+	//output to relays
+	//pin outputs for relays
+	setRelayOutputs();
+
 	//rotary encoder button
 	pinMode(encoder_button_pin, INPUT_PULLUP);
 	//rotary encoder enable
@@ -586,11 +628,7 @@ void setup()
 		rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
 	}
 
-	//pin outputs for relays
-	pinMode(11, OUTPUT);
-	pinMode(12, OUTPUT);
-	pinMode(13, OUTPUT);
-
+	
 	//liquidmenu functions
 	
 	//increase and decrease
@@ -634,18 +672,11 @@ void setup()
 // the loop function runs over and over again until power down or reset
 void loop() 
 {
-	getZoneCurrents();
-
 	rotaryCheck();
 
-	if (zoneCurrent[1] > 600)
-	{
-		digitalWrite(11, HIGH);
-	}
-	else
-	{
-		digitalWrite(11, LOW);
-	}
+	sampleZoneCurrents();
+
+	compareZoneCurrents();
 
 	if (millis() - updateLastMs > updatePeriod) 
 	{
